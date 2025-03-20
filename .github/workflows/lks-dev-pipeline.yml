@@ -1,0 +1,152 @@
+name: dev pipeline
+
+on:
+  push:
+    branches:
+    -  dev
+
+jobs:
+  build:
+    name: Build Application Image
+    runs-on: ubuntu-latest
+    steps:
+      -  name: Check Repository
+         uses: actions/checkout@v2
+
+      -  name: Update Docker Version On Runners
+         run: |
+          sudo apt install docker-ce -y
+          docker --version
+
+      -  name: Configure AWS Credentials
+         uses: aws-actions/configure-aws-credentials@v1
+         with: 
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      -   name:  build and push image into ECR.
+          env:
+            ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+            ECR_REPO: lks-voting-image
+            VOTE_IMAGE_TAG: vote-dev-latest
+            RESULT_IMAGE_TAG: result-dev-latest
+            WORKER_IMAGE_TAG: worker-dev-latest
+          run: |
+            docker build -t lks-voting-image ./vote
+            docker tag lks-voting-image $ECR_REGISTRY/$ECR_REPO:$VOTE_IMAGE_TAG
+            docker push $ECR_REGISTRY/$ECR_REPO:$VOTE_IMAGE_TAG
+            
+            docker build -t lks-voting-image ./result
+            docker tag lks-voting-image $ECR_REGISTRY/$ECR_REPO:$RESULT_IMAGE_TAG
+            docker push $ECR_REGISTRY/$ECR_REPO:$RESULT_IMAGE_TAG
+            
+            docker build -t lks-voting-image ./worker
+            docker tag lks-voting-image $ECR_REGISTRY/$ECR_REPO:$WORKER_IMAGE_TAG
+            docker push $ECR_REGISTRY/$ECR_REPO:$WORKER_IMAGE_TAG
+
+  master:
+    name: Pull Image on master
+    needs: build
+    runs-on: master
+    steps:
+      -  name: Configure AWS Credentials
+         uses: aws-actions/configure-aws-credentials@v1
+         with: 
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+          
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      -  name: Pull docker Image on master
+         env:
+            ECR_REGISTRY: ${{steps.login-ecr.outputs.registry}}
+            ECR_REPO: lks-voting-image
+            VOTE_IMAGE_TAG: vote-dev-latest
+            RESULT_IMAGE_TAG: result-dev-latest
+            WORKER_IMAGE_TAG: worker-dev-latest
+         run: |
+           docker pull $ECR_REGISTRY/$ECR_REPO:$VOTE_IMAGE_TAG
+           docker pull $ECR_REGISTRY/$ECR_REPO:$RESULT_IMAGE_TAG
+           docker pull $ECR_REGISTRY/$ECR_REPO:$WORKER_IMAGE_TAG
+
+  node1:
+    name: Pull Image on node1
+    needs: build
+    runs-on: node1
+    steps:
+      -  name: Configure AWS Credentials
+         uses: aws-actions/configure-aws-credentials@v1
+         with: 
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+          
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      -  name: Pull docker Image on node1
+         env:
+            ECR_REGISTRY: ${{steps.login-ecr.outputs.registry}}
+            ECR_REPO: lks-voting-image
+            VOTE_IMAGE_TAG: vote-dev-latest
+            RESULT_IMAGE_TAG: result-dev-latest
+            WORKER_IMAGE_TAG: worker-dev-latest
+         run: |
+           docker pull $ECR_REGISTRY/$ECR_REPO:$VOTE_IMAGE_TAG
+           docker pull $ECR_REGISTRY/$ECR_REPO:$RESULT_IMAGE_TAG
+           docker pull $ECR_REGISTRY/$ECR_REPO:$WORKER_IMAGE_TAG
+
+  node2:
+    name: Pull Image on node2
+    needs: build
+    runs-on: node2
+    steps:
+      -  name: Configure AWS Credentials
+         uses: aws-actions/configure-aws-credentials@v1
+         with: 
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+          
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      -  name: Pull docker Image on node2
+         env:
+            ECR_REGISTRY: ${{steps.login-ecr.outputs.registry}}
+            ECR_REPO: lks-voting-image
+            VOTE_IMAGE_TAG: vote-dev-latest
+            RESULT_IMAGE_TAG: result-dev-latest
+            WORKER_IMAGE_TAG: worker-dev-latest
+         run: |
+           docker pull $ECR_REGISTRY/$ECR_REPO:$VOTE_IMAGE_TAG
+           docker pull $ECR_REGISTRY/$ECR_REPO:$RESULT_IMAGE_TAG
+           docker pull $ECR_REGISTRY/$ECR_REPO:$WORKER_IMAGE_TAG
+
+  deploy:
+    name: Deploy Application into docker swarm
+    runs-on: master
+    needs: [master, node1, node2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        
+      -  name: Deploy application images to Docker Swarm
+         run: |
+          docker stack rm stackdemo
+          sleep 30
+          docker stack deploy --compose-file docker-stack.yml stackdemo
